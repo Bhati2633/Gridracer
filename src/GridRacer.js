@@ -4,6 +4,7 @@ const DEFAULT_GRID_SIZE = 10;
 const MIN_GRID_SIZE = 4;
 const MAX_GRID_SIZE = 10;
 
+const CELL_SIZE = 40;
 const createGrid = (size) => {
   return Array.from({ length: size }, (_, row) =>
     Array.from({ length: size }, (_, col) => ({
@@ -82,6 +83,8 @@ export default function GridRacer() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [userScore, setUserScore] = useState(null);
   const [bestScore, setBestScore] = useState(null);
+  const [bestWeightSum, setBestWeightSum] = useState(null);
+  const [userWeightSum, setUserWeightSum] = useState(null);
 
   const start = { row: 0, col: 0 };
   const end = { row: gridSize - 1, col: gridSize - 1 };
@@ -91,6 +94,7 @@ export default function GridRacer() {
     setBestPath(newPath);
     const weightSum = newPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
     setBestScore(100 - weightSum);
+    setBestWeightSum(weightSum);
   }, [grid]);
 
   const handleSizeChange = (e) => {
@@ -103,6 +107,8 @@ export default function GridRacer() {
       setShowBest(false);
       setUserScore(null);
       setBestScore(null);
+      setBestWeightSum(null);
+      setUserWeightSum(null);
     }
   };
 
@@ -133,6 +139,7 @@ export default function GridRacer() {
 
   const calculateUserScore = () => {
     const weightSum = userPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
+    setUserWeightSum(weightSum);
     setUserScore(100 - weightSum);
   };
 
@@ -141,18 +148,20 @@ export default function GridRacer() {
     setShowBest(false);
     setUserScore(null);
     setBestScore(null);
+    setBestWeightSum(null);
+    setUserWeightSum(null);
     setGrid(createGrid(gridSize));
   };
 
   return (
     <div
-      style={{ padding: '20px' }}
+      style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
       onContextMenu={(e) => e.preventDefault()}
     >
       <h1>GridRacer: Optimize the Fastest Delivery Path!</h1>
-      <div>
+      <div style={{ marginBottom: '1rem' }}>
         <label>Select Grid Size (4 to 10): </label>
         <input
           type="number"
@@ -163,7 +172,15 @@ export default function GridRacer() {
         />
       </div>
       <p><strong>Instruction:</strong> Hold right-click and drag over cells to draw your path. Then check its score!</p>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridSize}, 30px)`, gap: '2px' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${gridSize}, ${CELL_SIZE}px)`,
+          gridTemplateRows: `repeat(${gridSize}, ${CELL_SIZE}px)`,
+          gap: '2px',
+          margin: '1rem auto'
+        }}
+      >
         {grid.map((row, rowIndex) =>
           row.map((cell, colIndex) => {
             const inUserPath = userPath.some(p => p.row === rowIndex && p.col === colIndex);
@@ -182,13 +199,13 @@ export default function GridRacer() {
                 key={`${rowIndex}-${colIndex}`}
                 onMouseEnter={() => handleCellEnter(rowIndex, colIndex)}
                 style={{
-                  width: '30px',
-                  height: '30px',
+                  width: `${CELL_SIZE}px`,
+                  height: `${CELL_SIZE}px`,
                   backgroundColor: bgColor,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '12px',
+                  fontSize: '14px',
                   fontWeight: 'bold',
                   border: '1px solid #ccc',
                   color: 'white',
@@ -201,14 +218,24 @@ export default function GridRacer() {
           })
         )}
       </div>
-      <div style={{ marginTop: '20px' }}>
+      <div style={{ marginTop: '10px' }}>
         <button onClick={resetUserPath}>Reset Grid</button>
         <button onClick={() => setShowBest(true)} style={{ marginLeft: '10px' }}>Show Best Path</button>
         <button onClick={calculateUserScore} style={{ marginLeft: '10px' }}>Check My Path Score</button>
       </div>
       <div style={{ marginTop: '10px' }}>
-        {userScore !== null && <p><strong>Your Path Score:</strong> {userScore}</p>}
-        {showBest && bestScore !== null && <p><strong>Best Path Score:</strong> {bestScore}</p>}
+        {userScore !== null && (
+          <>
+            <p><strong>Your Path Score:</strong> {userScore}</p>
+            <p><strong>Total Weight of Your Path:</strong> {userWeightSum}</p>
+          </>
+        )}
+        {showBest && bestScore !== null && (
+          <>
+            <p><strong>Best Path Score:</strong> {bestScore}</p>
+            <p><strong>Minimum Total Weight:</strong> {bestWeightSum}</p>
+          </>
+        )}
       </div>
     </div>
   );
