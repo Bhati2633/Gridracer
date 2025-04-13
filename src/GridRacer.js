@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 
-const GRID_SIZE = 10;
+const DEFAULT_GRID_SIZE = 10;
+const MIN_GRID_SIZE = 4;
+const MAX_GRID_SIZE = 10;
 
-const createGrid = () => {
-  return Array.from({ length: GRID_SIZE }, (_, row) =>
-    Array.from({ length: GRID_SIZE }, (_, col) => ({
+const createGrid = (size) => {
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => ({
       row,
       col,
       type: Math.random() < 0.2 ? 'building' : 'road',
@@ -21,18 +23,19 @@ const neighbors = [
 ];
 
 const dijkstra = (grid, start, end) => {
-  const dist = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(Infinity));
-  const visited = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(false));
-  const prev = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+  const size = grid.length;
+  const dist = Array(size).fill(null).map(() => Array(size).fill(Infinity));
+  const visited = Array(size).fill(null).map(() => Array(size).fill(false));
+  const prev = Array(size).fill(null).map(() => Array(size).fill(null));
 
   dist[start.row][start.col] = 0;
 
-  for (let count = 0; count < GRID_SIZE * GRID_SIZE; count++) {
+  for (let count = 0; count < size * size; count++) {
     let minDist = Infinity;
     let u = null;
 
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE; c++) {
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
         if (!visited[r][c] && dist[r][c] < minDist && grid[r][c].type !== 'building') {
           minDist = dist[r][c];
           u = { row: r, col: c };
@@ -47,8 +50,8 @@ const dijkstra = (grid, start, end) => {
       const nr = u.row + dr;
       const nc = u.col + dc;
       if (
-        nr >= 0 && nr < GRID_SIZE &&
-        nc >= 0 && nc < GRID_SIZE &&
+        nr >= 0 && nr < size &&
+        nc >= 0 && nc < size &&
         !visited[nr][nc] &&
         grid[nr][nc].type !== 'building'
       ) {
@@ -70,41 +73,38 @@ const dijkstra = (grid, start, end) => {
   return path;
 };
 
-const levels = [
-  { start: { row: 0, col: 0 }, end: { row: 9, col: 9 } },
-  { start: { row: 2, col: 2 }, end: { row: 7, col: 7 } },
-];
-
 export default function GridRacer() {
-  const [grid, setGrid] = useState(createGrid());
+  const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE);
+  const [grid, setGrid] = useState(createGrid(DEFAULT_GRID_SIZE));
   const [userPath, setUserPath] = useState([]);
   const [bestPath, setBestPath] = useState([]);
   const [showBest, setShowBest] = useState(false);
-  const [level, setLevel] = useState(0);
   const [isSelecting, setIsSelecting] = useState(false);
-  const [score, setScore] = useState(null);
+  const [userScore, setUserScore] = useState(null);
+  const [bestScore, setBestScore] = useState(null);
 
-  const start = levels[level].start;
-  const end = levels[level].end;
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setGrid(prevGrid =>
-        prevGrid.map(row =>
-          row.map(cell => ({
-            ...cell,
-            weight: cell.type === 'road' ? Math.floor(Math.random() * 5) + 1 : cell.weight,
-          }))
-        )
-      );
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const start = { row: 0, col: 0 };
+  const end = { row: gridSize - 1, col: gridSize - 1 };
 
   useEffect(() => {
     const newPath = dijkstra(grid, start, end);
     setBestPath(newPath);
-  }, [grid, level]);
+    const weightSum = newPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
+    setBestScore(100 - weightSum);
+  }, [grid]);
+
+  const handleSizeChange = (e) => {
+    let value = parseInt(e.target.value);
+    if (value >= MIN_GRID_SIZE && value <= MAX_GRID_SIZE) {
+      setGridSize(value);
+      const newGrid = createGrid(value);
+      setGrid(newGrid);
+      setUserPath([]);
+      setShowBest(false);
+      setUserScore(null);
+      setBestScore(null);
+    }
+  };
 
   const handleMouseDown = (e) => {
     if (e.button === 2) {
@@ -133,13 +133,15 @@ export default function GridRacer() {
 
   const calculateUserScore = () => {
     const weightSum = userPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
-    setScore(100 - weightSum);
+    setUserScore(100 - weightSum);
   };
 
   const resetUserPath = () => {
     setUserPath([]);
     setShowBest(false);
-    setScore(null);
+    setUserScore(null);
+    setBestScore(null);
+    setGrid(createGrid(gridSize));
   };
 
   return (
@@ -150,9 +152,18 @@ export default function GridRacer() {
       onContextMenu={(e) => e.preventDefault()}
     >
       <h1>GridRacer: Optimize the Fastest Delivery Path!</h1>
-      <p><strong>Level:</strong> {level + 1}</p>
+      <div>
+        <label>Select Grid Size (4 to 10): </label>
+        <input
+          type="number"
+          value={gridSize}
+          min={MIN_GRID_SIZE}
+          max={MAX_GRID_SIZE}
+          onChange={handleSizeChange}
+        />
+      </div>
       <p><strong>Instruction:</strong> Hold right-click and drag over cells to draw your path. Then check its score!</p>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${GRID_SIZE}, 30px)`, gap: '2px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridSize}, 30px)`, gap: '2px' }}>
         {grid.map((row, rowIndex) =>
           row.map((cell, colIndex) => {
             const inUserPath = userPath.some(p => p.row === rowIndex && p.col === colIndex);
@@ -191,15 +202,13 @@ export default function GridRacer() {
         )}
       </div>
       <div style={{ marginTop: '20px' }}>
-        <button onClick={resetUserPath}>Reset Path</button>
+        <button onClick={resetUserPath}>Reset Grid</button>
         <button onClick={() => setShowBest(true)} style={{ marginLeft: '10px' }}>Show Best Path</button>
-        <button onClick={() => setLevel((prev) => (prev + 1) % levels.length)} style={{ marginLeft: '10px' }}>Next Level</button>
         <button onClick={calculateUserScore} style={{ marginLeft: '10px' }}>Check My Path Score</button>
       </div>
       <div style={{ marginTop: '10px' }}>
-        {score !== null && (
-          <p><strong>Your Path Score:</strong> {score}</p>
-        )}
+        {userScore !== null && <p><strong>Your Path Score:</strong> {userScore}</p>}
+        {showBest && bestScore !== null && <p><strong>Best Path Score:</strong> {bestScore}</p>}
       </div>
     </div>
   );
