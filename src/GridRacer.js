@@ -1,19 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-const DEFAULT_GRID_SIZE = 10;
-const MIN_GRID_SIZE = 4;
-const MAX_GRID_SIZE = 10;
+const LEVELS = [
+  { size: 4, buildingDensity: 0.1, weightRange: [1, 3] },
+  { size: 6, buildingDensity: 0.15, weightRange: [1, 4] },
+  { size: 8, buildingDensity: 0.2, weightRange: [1, 5] },
+  { size: 10, buildingDensity: 0.25, weightRange: [1, 6] }
+];
 
 const CELL_SIZE = 40;
-const createGrid = (size) => {
-  return Array.from({ length: size }, (_, row) =>
+
+const createGrid = (size, buildingDensity, weightRange) => {
+  const grid = Array.from({ length: size }, (_, row) =>
     Array.from({ length: size }, (_, col) => ({
       row,
       col,
-      type: Math.random() < 0.2 ? 'building' : 'road',
-      weight: Math.floor(Math.random() * 5) + 1,
+      type: Math.random() < buildingDensity ? 'building' : 'road',
+      weight: Math.floor(Math.random() * (weightRange[1] - weightRange[0] + 1)) + weightRange[0],
     }))
   );
+  grid[size - 1][size - 1].type = 'road';
+  return grid;
 };
 
 const neighbors = [
@@ -28,8 +34,9 @@ const dijkstra = (grid, start, end) => {
   const dist = Array(size).fill(null).map(() => Array(size).fill(Infinity));
   const visited = Array(size).fill(null).map(() => Array(size).fill(false));
   const prev = Array(size).fill(null).map(() => Array(size).fill(null));
+  const explored = [];
 
-  dist[start.row][start.col] = 0;
+  dist[start.row][start.col] = grid[start.row][start.col].weight;
 
   for (let count = 0; count < size * size; count++) {
     let minDist = Infinity;
@@ -44,8 +51,9 @@ const dijkstra = (grid, start, end) => {
       }
     }
 
-    if (!u) break;
+    if (!u || (u.row === end.row && u.col === end.col)) break;
     visited[u.row][u.col] = true;
+    explored.push({ ...u });
 
     for (const [dr, dc] of neighbors) {
       const nr = u.row + dr;
@@ -67,55 +75,113 @@ const dijkstra = (grid, start, end) => {
 
   const path = [];
   let curr = end;
-  while (curr) {
+  while (curr && !(curr.row === start.row && curr.col === start.col)) {
     path.unshift(curr);
     curr = prev[curr.row][curr.col];
   }
-  return path;
+  path.unshift(start);
+  return { path, explored };
 };
 
 export default function GridRacer() {
-  const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE);
-  const [grid, setGrid] = useState(createGrid(DEFAULT_GRID_SIZE));
+  const [level, setLevel] = useState(0);
+  const [grid, setGrid] = useState(() => createGrid(
+    LEVELS[0].size,
+    LEVELS[0].buildingDensity,
+    LEVELS[0].weightRange
+  ));
   const [userPath, setUserPath] = useState([]);
+  const [pathHistory, setPathHistory] = useState([]);
   const [bestPath, setBestPath] = useState([]);
+  const [exploredNodes, setExploredNodes] = useState([]);
+  const [animatedStep, setAnimatedStep] = useState(-1);
   const [showBest, setShowBest] = useState(false);
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [userScore, setUserScore] = useState(null);
-  const [bestScore, setBestScore] = useState(null);
+  const [liveScore, setLiveScore] = useState(0);
   const [bestWeightSum, setBestWeightSum] = useState(null);
-  const [userWeightSum, setUserWeightSum] = useState(null);
+  const [isValidPath, setIsValidPath] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const animationRef = useRef(null);
 
+  const currentLevel = LEVELS[level];
   const start = { row: 0, col: 0 };
-  const end = { row: gridSize - 1, col: gridSize - 1 };
+  const end = { row: currentLevel.size - 1, col: currentLevel.size - 1 };
 
   useEffect(() => {
-    const newPath = dijkstra(grid, start, end);
-    setBestPath(newPath);
-    const weightSum = newPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
-    setBestScore(100 - weightSum);
+    const { path, explored } = dijkstra(grid, start, end);
+    setBestPath(path);
+    setExploredNodes(explored);
+    setAnimatedStep(-1);
+    const weightSum = path.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
     setBestWeightSum(weightSum);
-  }, [grid]);
+  }, [grid, level]);
 
-  const handleSizeChange = (e) => {
-    let value = parseInt(e.target.value);
-    if (value >= MIN_GRID_SIZE && value <= MAX_GRID_SIZE) {
-      setGridSize(value);
-      const newGrid = createGrid(value);
-      setGrid(newGrid);
-      setUserPath([]);
-      setShowBest(false);
-      setUserScore(null);
-      setBestScore(null);
-      setBestWeightSum(null);
-      setUserWeightSum(null);
+  useEffect(() => {
+    const weightSum = userPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
+    setLiveScore(weightSum);
+
+    if (userPath.length > 0) {
+      const firstCell = userPath[0];
+      const lastCell = userPath[userPath.length - 1];
+      const startsCorrectly = firstCell.row === start.row && firstCell.col === start.col;
+      const endsCorrectly = lastCell.row === end.row && lastCell.col === end.col;
+
+      let isContinuous = true;
+      for (let i = 1; i < userPath.length; i++) {
+        const prevCell = userPath[i - 1];
+        const currCell = userPath[i];
+        const rowDiff = Math.abs(prevCell.row - currCell.row);
+        const colDiff = Math.abs(prevCell.col - currCell.col);
+        if (rowDiff + colDiff !== 1) {
+          isContinuous = false;
+          break;
+        }
+      }
+
+      setIsValidPath(startsCorrectly && endsCorrectly && isContinuous);
+    } else {
+      setIsValidPath(false);
     }
+  }, [userPath]);
+
+  const startAnimation = () => {
+    if (animationRef.current) clearInterval(animationRef.current);
+    setAnimatedStep(0);
+    animationRef.current = setInterval(() => {
+      setAnimatedStep(prev => {
+        if (prev >= exploredNodes.length - 1) {
+          clearInterval(animationRef.current);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 100);
   };
 
-  const handleMouseDown = (e) => {
+  const handleLevelChange = (newLevel) => {
+    setLevel(newLevel);
+    const levelConfig = LEVELS[newLevel];
+    const newGrid = createGrid(
+      levelConfig.size,
+      levelConfig.buildingDensity,
+      levelConfig.weightRange
+    );
+    setGrid(newGrid);
+    setUserPath([]);
+    setPathHistory([]);
+    setShowBest(false);
+    setLiveScore(0);
+    setAnimatedStep(-1);
+    setBestWeightSum(null);
+    setIsValidPath(false);
+    clearInterval(animationRef.current);
+  };
+
+  const handleMouseDown = (e, row, col) => {
     if (e.button === 2) {
       e.preventDefault();
       setIsSelecting(true);
+      setPathHistory([...pathHistory, userPath]);
+      handleCellEnter(row, col);
     }
   };
 
@@ -126,9 +192,13 @@ export default function GridRacer() {
   const handleCellEnter = (row, col) => {
     if (isSelecting) {
       const cell = grid[row][col];
-      if (cell.type === 'road') {
+      const isEndCell = row === end.row && col === end.col;
+      if (cell.type === 'road' || isEndCell) {
         setUserPath(prev => {
-          if (!prev.some(p => p.row === row && p.col === col)) {
+          const last = prev[prev.length - 1];
+          const isAdjacent = !last || (Math.abs(last.row - row) + Math.abs(last.col - col) === 1);
+          const alreadySelected = prev.some(p => p.row === row && p.col === col);
+          if (isAdjacent && !alreadySelected) {
             return [...prev, { row, col }];
           }
           return prev;
@@ -137,106 +207,82 @@ export default function GridRacer() {
     }
   };
 
-  const calculateUserScore = () => {
-    const weightSum = userPath.reduce((sum, cell) => sum + grid[cell.row][cell.col].weight, 0);
-    setUserWeightSum(weightSum);
-    setUserScore(100 - weightSum);
+  const undoLastStep = () => {
+    if (pathHistory.length > 0) {
+      const previousPath = pathHistory[pathHistory.length - 1];
+      setUserPath(previousPath);
+      setPathHistory(pathHistory.slice(0, -1));
+    }
   };
 
-  const resetUserPath = () => {
+  const regenerateGrid = () => {
+    const newGrid = createGrid(
+      currentLevel.size,
+      currentLevel.buildingDensity,
+      currentLevel.weightRange
+    );
+    setGrid(newGrid);
     setUserPath([]);
+    setPathHistory([]);
     setShowBest(false);
-    setUserScore(null);
-    setBestScore(null);
-    setBestWeightSum(null);
-    setUserWeightSum(null);
-    setGrid(createGrid(gridSize));
+    setLiveScore(0);
+    setIsValidPath(false);
+    clearInterval(animationRef.current);
   };
 
   return (
-    <div
-      style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      <h1>GridRacer: Optimize the Fastest Delivery Path!</h1>
-      <div style={{ marginBottom: '1rem' }}>
-        <label>Select Grid Size (4 to 10): </label>
-        <input
-          type="number"
-          value={gridSize}
-          min={MIN_GRID_SIZE}
-          max={MAX_GRID_SIZE}
-          onChange={handleSizeChange}
-        />
-      </div>
-      <p><strong>Instruction:</strong> Hold right-click and drag over cells to draw your path. Then check its score!</p>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${gridSize}, ${CELL_SIZE}px)`,
-          gridTemplateRows: `repeat(${gridSize}, ${CELL_SIZE}px)`,
-          gap: '2px',
-          margin: '1rem auto'
-        }}
-      >
+    <div style={{ width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <h1>GridRacer: Learn Dijkstra's Algorithm</h1>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${currentLevel.size}, ${CELL_SIZE}px)`, gap: '2px', marginBottom: '1rem' }}>
         {grid.map((row, rowIndex) =>
           row.map((cell, colIndex) => {
             const inUserPath = userPath.some(p => p.row === rowIndex && p.col === colIndex);
-            const inBestPath = bestPath.some(p => p.row === rowIndex && p.col === colIndex);
+            const inBestPath = showBest && bestPath.some(p => p.row === rowIndex && p.col === colIndex);
+            const isExplored = animatedStep >= 0 && exploredNodes.slice(0, animatedStep + 1).some(p => p.row === rowIndex && p.col === colIndex);
+            const isCurrent = animatedStep >= 0 && exploredNodes[animatedStep]?.row === rowIndex && exploredNodes[animatedStep]?.col === colIndex;
             const isStart = rowIndex === start.row && colIndex === start.col;
             const isEnd = rowIndex === end.row && colIndex === end.col;
 
             let bgColor = cell.type === 'building' ? '#444' : 'lightgray';
             if (inUserPath) bgColor = 'skyblue';
-            if (showBest && inBestPath) bgColor = 'limegreen';
+            if (inBestPath) bgColor = 'limegreen';
+            if (isExplored) bgColor = 'yellow';
+            if (isCurrent) bgColor = 'orange';
             if (isStart) bgColor = 'blue';
             if (isEnd) bgColor = 'red';
 
             return (
               <div
                 key={`${rowIndex}-${colIndex}`}
+                onMouseDown={(e) => handleMouseDown(e, rowIndex, colIndex)}
                 onMouseEnter={() => handleCellEnter(rowIndex, colIndex)}
                 style={{
                   width: `${CELL_SIZE}px`,
                   height: `${CELL_SIZE}px`,
                   backgroundColor: bgColor,
+                  border: '1px solid #ccc',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '14px',
                   fontWeight: 'bold',
-                  border: '1px solid #ccc',
-                  color: 'white',
-                  cursor: 'pointer'
+                  fontSize: '14px',
+                  color: cell.type === 'building' ? 'white' : 'black',
                 }}
               >
-                {cell.type === 'road' ? cell.weight : ''}
+                {cell.type === 'road' ? cell.weight : 'X'}
               </div>
             );
           })
         )}
       </div>
-      <div style={{ marginTop: '10px' }}>
-        <button onClick={resetUserPath}>Reset Grid</button>
-        <button onClick={() => setShowBest(true)} style={{ marginLeft: '10px' }}>Show Best Path</button>
-        <button onClick={calculateUserScore} style={{ marginLeft: '10px' }}>Check My Path Score</button>
+      <div style={{ marginBottom: '10px' }}>
+        <button onClick={regenerateGrid}>New Grid</button>
+        <button onClick={undoLastStep} style={{ marginLeft: '10px' }}>Undo</button>
+        <button onClick={() => setShowBest(!showBest)} style={{ marginLeft: '10px' }}>Show Best Path</button>
+        <button onClick={startAnimation} style={{ marginLeft: '10px' }}>Start Step-by-Step</button>
       </div>
-      <div style={{ marginTop: '10px' }}>
-        {userScore !== null && (
-          <>
-            <p><strong>Your Path Score:</strong> {userScore}</p>
-            <p><strong>Total Weight of Your Path:</strong> {userWeightSum}</p>
-          </>
-        )}
-        {showBest && bestScore !== null && (
-          <>
-            <p><strong>Best Path Score:</strong> {bestScore}</p>
-            <p><strong>Minimum Total Weight:</strong> {bestWeightSum}</p>
-          </>
-        )}
-      </div>
+      <p><strong>Current Weight:</strong> {liveScore}</p>
+      {bestWeightSum !== null && <p><strong>Optimal Weight:</strong> {bestWeightSum}</p>}
     </div>
   );
 }
