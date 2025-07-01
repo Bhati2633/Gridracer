@@ -1,6 +1,6 @@
 # 🚀 GridRacer: Visualizing Dijkstra’s Algorithm
 
-**Created by:** Bhavya & Jyonas  
+**Created by:** Bhavya   
 **Tech Stack:** React • JavaScript • HTML/CSS
 
 ---
